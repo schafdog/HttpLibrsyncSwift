@@ -378,11 +378,12 @@ public struct DeltaStream: AsyncSequence, Sendable {
                     }
 
                     var nBytes: Int = 0
+		    let bufferSize = inBuffer.count
                     inBuffer.withUnsafeMutableBytes { dest in
                         nBytes = fread(
                             dest.baseAddress!.advanced(by: Int(bufs.avail_in)),
                             1,
-                            inBuffer.count - Int(bufs.avail_in),
+                            bufferSize - Int(bufs.avail_in),
                             file
                         )
                     }
