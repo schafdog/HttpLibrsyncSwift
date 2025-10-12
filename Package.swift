@@ -92,5 +92,12 @@ let package = Package(
             ],
             path: "Sources/HTTPClient"
         ),
+
+        // Tests
+        .testTarget(
+            name: "RsyncSwiftTests",
+            dependencies: ["RsyncSwift", "Clibrsync"],
+            path: "Tests/RsyncSwiftTests"
+        ),
     ]
 )
