@@ -401,27 +401,12 @@ public struct DeltaStream: AsyncSequence, Sendable {
                     bufs.avail_in += nBytes
                 }
 
-                // Process data - may need multiple iterations
-                var iterations = 0
-                while (result == RS_RUNNING || result == RS_BLOCKED) && iterations < 1000 {
-                    let prevAvailIn = bufs.avail_in
-                    result = rs_job_iter(job, &bufs)
-                    iterations += 1
+                // Process data once per loop iteration
+                result = rs_job_iter(job, &bufs)
 
-                    if result != RS_DONE && result != RS_BLOCKED && result != RS_RUNNING {
-                        cleanup()
-                        return nil
-                    }
-
-                    if result == RS_DONE {
-                        break
-                    }
-
-                    // If RS_BLOCKED and no input consumed, need more input
-                    // Break out to read more data
-                    if result == RS_BLOCKED && bufs.avail_in == prevAvailIn {
-                        break
-                    }
+                if result != RS_DONE && result != RS_BLOCKED && result != RS_RUNNING {
+                    cleanup()
+                    return nil
                 }
 
                 // Check for output
@@ -445,13 +430,6 @@ public struct DeltaStream: AsyncSequence, Sendable {
 
                 // No output and done
                 if result == RS_DONE {
-                    cleanup()
-                    isDone = true
-                    return nil
-                }
-
-                // Safety check
-                if iterations >= 1000 {
                     cleanup()
                     isDone = true
                     return nil
