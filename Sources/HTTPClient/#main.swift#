@@ -1,0 +1,404 @@
+/*
+ * librsync -- the library for network deltas
+ *
+ * Copyright (C) 2024 by Lars Erik Wik <lars.erik.wik@northern.tech>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
+ *
+ * Converted to Swift with AsyncHTTPClient by Claude Code
+ */
+
+import Foundation
+import AsyncHTTPClient
+import Clibrsync
+import RsyncSwift
+import NIOCore
+import NIOHTTP1
+
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
+
+// MARK: - Signature Generation
+
+struct SignatureGenerator: Sendable {
+    let filename: String
+
+    func generateSignature() throws -> SignatureStream {
+        // Open basis file
+        guard let file = rs_file_open(filename, "rb", 0) else {
+            throw RSyncError.fileOpenFailed
+        }
+
+        // Get file size
+        let fsize = rs_file_size(file)
+
+        // Get recommended arguments
+        var sigMagic: rs_magic_number = rs_magic_number(rawValue: 0)
+        var blockLen: Int = 0
+        var strongLen: Int = 0
+
+        let res = rs_sig_args(fsize, &sigMagic, &blockLen, &strongLen)
+        guard res == RS_DONE else {
+            rs_file_close(file)
+            throw RSyncError.signatureArgsFailed
+        }
+
+        // Start generating signature
+        guard let job = rs_sig_begin(blockLen, strongLen, sigMagic) else {
+            rs_file_close(file)
+            throw RSyncError.signatureJobFailed
+        }
+
+        return SignatureStream(file: file, job: job)
+    }
+}
+
+/// AsyncSequence that generates signature chunks
+struct SignatureStream: AsyncSequence, Sendable {
+    typealias Element = ByteBuffer
+
+    let file: UnsafeMutablePointer<FILE>
+    let job: OpaquePointer
+
+    func makeAsyncIterator() -> AsyncIterator {
+        AsyncIterator(file: file, job: job)
+    }
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        let file: UnsafeMutablePointer<FILE>
+        let job: OpaquePointer
+        var bufs: rs_buffers_t
+        var inBuffer: [UInt8]
+        var outBuffer: [UInt8]
+        var sigRes: rs_result
+        var isInitialized = false
+        var isDone = false
+
+        init(file: UnsafeMutablePointer<FILE>, job: OpaquePointer) {
+            self.file = file
+            self.job = job
+            self.bufs = rs_buffers_t()
+            self.inBuffer = [UInt8](repeating: 0, count: BUFFER_SIZE * 2)
+            self.outBuffer = [UInt8](repeating: 0, count: BUFFER_SIZE * 2)
+            self.sigRes = RS_RUNNING
+        }
+
+        mutating func next() async -> ByteBuffer? {
+            // Initialize buffers on first call
+            if !isInitialized {
+                bufs.next_in = inBuffer.withMutableInt8Pointer { $0 }
+                bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
+                bufs.avail_out = BUFFER_SIZE
+                isInitialized = true
+            }
+
+            if isDone {
+                return nil
+            }
+
+            // Fill input buffer if needed
+            if bufs.eof_in == 0 {
+                if bufs.avail_in >= inBuffer.count {
+                    print("ERROR: Insufficient buffer capacity")
+                    cleanup()
+                    return nil
+                }
+
+                if bufs.avail_in > 0 {
+                    inBuffer.withUnsafeMutableBytes { dest in
+                        _ = memmove(dest.baseAddress!, bufs.next_in, bufs.avail_in)
+                    }
+                }
+
+                // Read from file
+                var nBytes: Int = 0
+                let bufferSize = inBuffer.count
+                inBuffer.withUnsafeMutableBytes { dest in
+                    nBytes = fread(dest.baseAddress!.advanced(by: Int(bufs.avail_in)), 1, bufferSize - Int(bufs.avail_in), file)
+                }
+
+                print("Read \(nBytes) bytes from file")
+
+                if nBytes == 0 {
+                    if ferror(file) != 0 {
+                        print("ERROR: Failed to read file")
+                        cleanup()
+                        return nil
+                    }
+                    bufs.eof_in = feof(file) != 0 ? 1 : 0
+                    assert(bufs.eof_in != 0)
+                }
+
+                bufs.next_in = inBuffer.withMutableInt8Pointer { $0 }
+                bufs.avail_in += nBytes
+            }
+
+            // Process data
+            print("Running signature job iteration")
+            sigRes = rs_job_iter(job, &bufs)
+            if sigRes != RS_DONE && sigRes != RS_BLOCKED {
+                print("ERROR: librsync error: \(sigRes)")
+                cleanup()
+                return nil
+            }
+
+            // Check for output
+            let present = outBuffer.withInt8Pointer { baseAddr in
+                guard let nextOut = bufs.next_out else { return 0 }
+                return UnsafePointer(nextOut) - baseAddr
+            }
+
+            if present > 0 {
+                assert(present <= BUFFER_SIZE)
+                print("Sending \(present) bytes of signature")
+                var buffer = ByteBuffer()
+                buffer.writeBytes(outBuffer.prefix(present))
+
+                bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
+                bufs.avail_out = BUFFER_SIZE
+
+                return buffer
+            }
+
+            // Check if done
+            if sigRes == RS_DONE {
+                cleanup()
+                isDone = true
+                return nil
+            }
+
+            // No output yet but not done, continue iteration
+            return await next()
+        }
+
+        mutating func cleanup() {
+            rs_file_close(file)
+            rs_job_free(job)
+        }
+    }
+}
+
+// MARK: - Delta Application
+
+func receiveDeltaAndPatchFile(response: HTTPClientResponse, filename: String) async throws {
+    let newFilename = filename + ".new"
+
+    // Open new file
+    guard let newFile = rs_file_open(newFilename, "wb", 1) else {
+        throw RSyncError.fileOpenFailed
+    }
+
+    // Open basis file
+    guard let oldFile = rs_file_open(filename, "rb", 0) else {
+        fclose(newFile)
+        throw RSyncError.fileOpenFailed
+    }
+
+    guard let job = rs_patch_begin(rs_file_copy_cb, oldFile) else {
+        fclose(newFile)
+        fclose(oldFile)
+        throw RSyncError.patchJobFailed
+    }
+
+    var bufs = rs_buffers_t()
+    var inBuffer = [UInt8](repeating: 0, count: BUFFER_SIZE * 2)
+    var outBuffer = [UInt8](repeating: 0, count: BUFFER_SIZE * 4)
+
+    bufs.next_in = inBuffer.withMutableInt8Pointer { $0 }
+    bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
+    bufs.avail_out = outBuffer.count
+
+    var patchRes: rs_result = RS_RUNNING
+
+    // Read delta from response body
+    for try await var buffer in response.body {
+        let nBytes = buffer.readableBytes
+
+        if nBytes > 0 {
+            if bufs.avail_in > BUFFER_SIZE {
+                rs_file_close(newFile)
+                rs_file_close(oldFile)
+                rs_job_free(job)
+                throw RSyncError.insufficientBuffer
+            }
+
+            if bufs.avail_in > 0 {
+                inBuffer.withUnsafeMutableBytes { dest in
+                    _ = memmove(dest.baseAddress!, bufs.next_in, bufs.avail_in)
+                }
+            }
+
+            // Copy data from ByteBuffer
+            buffer.withUnsafeReadableBytes { bytes in
+                inBuffer.withUnsafeMutableBytes { dest in
+                    _ = memcpy(dest.baseAddress!.advanced(by: Int(bufs.avail_in)), bytes.baseAddress!, nBytes)
+                }
+            }
+
+            bufs.next_in = inBuffer.withMutableInt8Pointer { $0 }
+            bufs.avail_in += nBytes
+
+            print("Received \(nBytes) bytes of delta")
+        }
+
+        // Process data
+        while bufs.avail_in > 0 && (patchRes == RS_RUNNING || patchRes == RS_BLOCKED) {
+            patchRes = rs_job_iter(job, &bufs)
+            if patchRes != RS_DONE && patchRes != RS_BLOCKED {
+                rs_file_close(newFile)
+                rs_file_close(oldFile)
+                rs_job_free(job)
+                throw RSyncError.patchFailed
+            }
+
+            // Drain output buffer
+            let present = outBuffer.withInt8Pointer { baseAddr in
+                guard let nextOut = bufs.next_out else { return 0 }
+                return UnsafePointer(nextOut) - baseAddr
+            }
+            if present > 0 {
+                let written = fwrite(outBuffer, 1, present, newFile)
+                if written == 0 {
+                    print("ERROR: Failed to write to file")
+                    rs_file_close(newFile)
+                    rs_file_close(oldFile)
+                    rs_job_free(job)
+                    throw RSyncError.fileWriteFailed
+                }
+
+                bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
+                bufs.avail_out = outBuffer.count
+            }
+
+            if patchRes == RS_DONE {
+                break
+            }
+        }
+
+        if patchRes == RS_DONE {
+            break
+        }
+    }
+
+    // Mark EOF and finish processing
+    bufs.eof_in = 1
+    while patchRes == RS_RUNNING || patchRes == RS_BLOCKED {
+        patchRes = rs_job_iter(job, &bufs)
+        if patchRes != RS_DONE && patchRes != RS_BLOCKED {
+            rs_file_close(newFile)
+            rs_file_close(oldFile)
+            rs_job_free(job)
+            throw RSyncError.patchFailed
+        }
+
+        // Drain output buffer
+        let present = outBuffer.withInt8Pointer { baseAddr in
+            guard let nextOut = bufs.next_out else { return 0 }
+            return UnsafePointer(nextOut) - baseAddr
+        }
+        if present > 0 {
+            let written = fwrite(outBuffer, 1, present, newFile)
+            if written == 0 {
+                print("ERROR: Failed to write to file")
+                rs_file_close(newFile)
+                rs_file_close(oldFile)
+                rs_job_free(job)
+                throw RSyncError.fileWriteFailed
+            }
+
+            bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
+            bufs.avail_out = outBuffer.count
+        }
+    }
+
+    rs_file_close(newFile)
+    rs_file_close(oldFile)
+    rs_job_free(job)
+
+    print("Successfully created \(newFilename)")
+}
+
+// MARK: - Error Types
+
+enum RSyncError: Error {
+    case fileOpenFailed
+    case signatureArgsFailed
+    case signatureJobFailed
+    case patchJobFailed
+    case patchFailed
+    case fileWriteFailed
+    case insufficientBuffer
+    case httpError(String)
+}
+
+// MARK: - Main Application
+
+@main
+struct HTTPClientApp {
+    static func main() async throws {
+        guard CommandLine.arguments.count >= 3 else {
+            print("USAGE: \(CommandLine.arguments[0]) <FILENAME> <SERVER_URL>")
+            print("Example: \(CommandLine.arguments[0]) README.md http://127.0.0.1:8081")
+            exit(EXIT_FAILURE)
+        }
+
+        let filename = CommandLine.arguments[1]
+        let serverURL = CommandLine.arguments[2]
+
+        // Verify file exists
+        guard FileManager.default.fileExists(atPath: filename) else {
+            print("ERROR: File not found: \(filename)")
+            exit(EXIT_FAILURE)
+        }
+
+        print("Connecting to server at \(serverURL)")
+        print("Processing file: \(filename)")
+
+        // Create HTTP client
+        let httpClient = HTTPClient(eventLoopGroupProvider: .singleton)
+        defer {
+            try? httpClient.syncShutdown()
+        }
+
+        // Generate signature stream
+        let generator = SignatureGenerator(filename: filename)
+        let signatureStream = try generator.generateSignature()
+
+        // Build request URL
+        let urlString = "\(serverURL)/delta?file=\(filename.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? filename)"
+        guard let url = URL(string: urlString) else {
+            throw RSyncError.httpError("Invalid URL: \(urlString)")
+        }
+
+        print("Sending signature to server...")
+
+        // Create request with streaming body
+        var request = HTTPClientRequest(url: urlString)
+        request.method = .POST
+        request.headers.add(name: "Content-Type", value: "application/octet-stream")
+        request.headers.add(name: "Transfer-Encoding", value: "chunked")
+
+        // Set body to stream signature
+        request.body = .stream(signatureStream, length: .unknown)
+
+        // Execute request and process response
+        let response = try await httpClient.execute(request, timeout: .seconds(300))
+
+        guard response.status == .ok else {
+            throw RSyncError.httpError("Server returned status: \(response.status)")
+        }
+
+        print("Receiving delta from server...")
+
+        // Apply delta to create new file
+        try await receiveDeltaAndPatchFile(response: response, filename: filename)
+
+        print("Success! Created \(filename).new")
+    }
+}
