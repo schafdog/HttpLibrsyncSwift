@@ -12,7 +12,7 @@
 
 import Foundation
 import Clibrsync
-import RsyncSwift
+import LibrsyncSwift
 
 #if os(Linux)
 import Glibc

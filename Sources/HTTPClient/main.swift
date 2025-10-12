@@ -12,7 +12,7 @@
 
 import Foundation
 import AsyncHTTPClient
-import RsyncSwift
+import LibrsyncSwift
 import NIOCore
 import NIOHTTP1
 import Logging

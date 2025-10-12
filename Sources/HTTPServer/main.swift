@@ -12,7 +12,7 @@
 
 import Foundation
 import Hummingbird
-import RsyncSwift
+import LibrsyncSwift
 import NIOCore
 import NIOHTTP1
 import Logging

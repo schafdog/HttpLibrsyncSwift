@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "RsyncSwift",
+    name: "HttpLibrsyncSwift",
     platforms: [
         .macOS(.v10_15)
     ],
@@ -31,8 +31,8 @@ let package = Package(
         ),
         // Library for shared connection code
         .library(
-            name: "RsyncSwift",
-            targets: ["RsyncSwift"]
+            name: "LibrsyncSwift",
+            targets: ["LibrsyncSwift"]
         ),
     ],
     dependencies: [
@@ -52,22 +52,22 @@ let package = Package(
 
         // Shared connection library
         .target(
-            name: "RsyncSwift",
+            name: "LibrsyncSwift",
             dependencies: ["Clibrsync"],
-            path: "Sources/RsyncSwift"
+            path: "Sources/LibrsyncSwift"
         ),
 
         // Server executable
         .executableTarget(
             name: "Server",
-            dependencies: ["RsyncSwift", "Clibrsync"],
+            dependencies: ["LibrsyncSwift", "Clibrsync"],
             path: "Sources/Server"
         ),
 
         // Client executable
         .executableTarget(
             name: "Client",
-            dependencies: ["RsyncSwift", "Clibrsync"],
+            dependencies: ["LibrsyncSwift", "Clibrsync"],
             path: "Sources/Client"
         ),
 
@@ -75,7 +75,7 @@ let package = Package(
         .executableTarget(
             name: "HTTPServer",
             dependencies: [
-                "RsyncSwift",
+                "LibrsyncSwift",
                 "Clibrsync",
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
@@ -86,7 +86,7 @@ let package = Package(
         .executableTarget(
             name: "HTTPClient",
             dependencies: [
-                "RsyncSwift",
+                "LibrsyncSwift",
                 "Clibrsync",
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
             ],
@@ -95,9 +95,9 @@ let package = Package(
 
         // Tests
         .testTarget(
-            name: "RsyncSwiftTests",
-            dependencies: ["RsyncSwift", "Clibrsync"],
-            path: "Tests/RsyncSwiftTests"
+            name: "LibrsyncSwiftTests",
+            dependencies: ["LibrsyncSwift", "Clibrsync"],
+            path: "Tests/LibrsyncSwiftTests"
         ),
     ]
 )
