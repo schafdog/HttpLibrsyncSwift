@@ -98,16 +98,26 @@ struct HTTPClientApp {
         // Parse arguments
         var args = CommandLine.arguments
 
-        // Check for log level flags
+        // Determine log level from arguments
+        var logLevel: Logger.Level = .notice
         if let verboseIndex = args.firstIndex(of: "-v") ?? args.firstIndex(of: "--verbose") {
-            logger.logLevel = .info
+            logLevel = .info
             args.remove(at: verboseIndex)
         } else if let debugIndex = args.firstIndex(of: "-vv") ?? args.firstIndex(of: "--debug") {
-            logger.logLevel = .debug
+            logLevel = .debug
             args.remove(at: debugIndex)
-        } else {
-            logger.logLevel = .notice
         }
+
+        // Initialize logging system
+        let capturedLogLevel = logLevel
+        LoggingSystem.bootstrap { label in
+            var handler = StreamLogHandler.standardOutput(label: label)
+            handler.logLevel = capturedLogLevel
+            return handler
+        }
+
+        // Set log level on global logger
+        logger.logLevel = logLevel
 
         guard args.count >= 3 else {
             print("USAGE: \(args[0]) [OPTIONS] <FILENAME> <SERVER_URL>")
@@ -203,11 +213,20 @@ struct HTTPClientApp {
 
         let deltaDataStream = rsync.deltaStream(from: fileURL, against: signatureHandle)
 
-        // Convert Data chunks to ByteBuffer for AsyncHTTPClient
-        let deltaByteBufferStream = deltaDataStream.map { data in
-            var buffer = ByteBuffer()
-            buffer.writeBytes(data)
-            return buffer
+        // Convert Data chunks to ByteBuffer for AsyncHTTPClient with logging
+        let deltaByteBufferStream = AsyncStream<ByteBuffer> { continuation in
+            Task {
+                var totalDeltaBytes = 0
+                for await data in deltaDataStream {
+                    totalDeltaBytes += data.count
+                    logger.debug("Sending \(data.count) bytes of delta (total: \(totalDeltaBytes))")
+                    var buffer = ByteBuffer()
+                    buffer.writeBytes(data)
+                    continuation.yield(buffer)
+                }
+                logger.info("Delta generation complete. Total: \(totalDeltaBytes) bytes")
+                continuation.finish()
+            }
         }
 
         // Step 4: Send delta to server

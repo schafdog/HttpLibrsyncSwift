@@ -53,11 +53,20 @@ struct DeltaController {
         // Stream signature using LibrsyncWrapper
         let signatureStream = rsync.signatureStream(from: fileURL)
 
-        // Convert Data chunks to ByteBuffer for Hummingbird
-        let byteBufferStream = signatureStream.map { data in
-            var buffer = ByteBuffer()
-            buffer.writeBytes(data)
-            return buffer
+        // Convert Data chunks to ByteBuffer for Hummingbird with logging
+        let byteBufferStream = AsyncStream<ByteBuffer> { continuation in
+            Task {
+                var totalSignatureBytes = 0
+                for await data in signatureStream {
+                    totalSignatureBytes += data.count
+                    logger.debug("Sending \(data.count) bytes of signature (total: \(totalSignatureBytes))")
+                    var buffer = ByteBuffer()
+                    buffer.writeBytes(data)
+                    continuation.yield(buffer)
+                }
+                logger.info("Signature generation complete. Total: \(totalSignatureBytes) bytes")
+                continuation.finish()
+            }
         }
 
         return Response(
@@ -198,10 +207,7 @@ struct AccessLogMiddleware<Context: RequestContext>: RouterMiddleware {
 @main
 struct HTTPServerApp {
     static func main() async throws {
-        // Initialize logging system
-        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
-
-        // Parse arguments
+        // Parse arguments first to determine log level
         var args = CommandLine.arguments
 
         // Check for help flag first (before any async operations)
@@ -212,17 +218,27 @@ struct HTTPServerApp {
 
         // Default values
         var port: Int = 8081
+        var logLevel: Logger.Level = .notice
 
         // Check for log level flags
         if let verboseIndex = args.firstIndex(of: "-v") ?? args.firstIndex(of: "--verbose") {
-            logger.logLevel = .info
+            logLevel = .info
             args.remove(at: verboseIndex)
         } else if let debugIndex = args.firstIndex(of: "-vv") ?? args.firstIndex(of: "--debug") {
-            logger.logLevel = .debug
+            logLevel = .debug
             args.remove(at: debugIndex)
-        } else {
-            logger.logLevel = .notice
         }
+
+        // Initialize logging system with the determined log level
+        let capturedLogLevel = logLevel
+        LoggingSystem.bootstrap { label in
+            var handler = StreamLogHandler.standardOutput(label: label)
+            handler.logLevel = capturedLogLevel
+            return handler
+        }
+
+        // Set log level on global logger
+        logger.logLevel = logLevel
 
         // Check for port flag
         if let portIndex = args.firstIndex(of: "-p") ?? args.firstIndex(of: "--port") {
@@ -246,7 +262,7 @@ struct HTTPServerApp {
         let router = Router()
 
         // Add access logging middleware FIRST (so it wraps all routes)
-        router.middlewares.add(AccessLogMiddleware())
+	router.middlewares.add(AccessLogMiddleware())
 
         let controller = DeltaController()
 
