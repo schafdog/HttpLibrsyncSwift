@@ -122,7 +122,6 @@ let package = Package(
             ],
             path: "Tests/LibrsyncSwiftTests",
             exclude: [
-                "LibrsyncWrapperTests.swift.xctest",  // XCTest version (requires Xcode on macOS)
                 "README.md",
                 "DummyTests.swift"  // Old placeholder, no longer needed
             ]
