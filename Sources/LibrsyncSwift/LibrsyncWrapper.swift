@@ -356,7 +356,7 @@ public struct DeltaStream: AsyncSequence, Sendable {
 
                 bufs.next_in = inBuffer.withMutableInt8Pointer { $0 }
                 bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
-                bufs.avail_out = config.bufferSize
+                bufs.avail_out = outBuffer.count
                 isInitialized = true
             }
 
@@ -370,8 +370,8 @@ public struct DeltaStream: AsyncSequence, Sendable {
 
             // Main processing loop
             while true {
-                // Read input if needed
-                if bufs.eof_in == 0 {
+                // Read input if needed (only if buffer has space)
+                if bufs.eof_in == 0 && bufs.avail_in < inBuffer.count {
                     if bufs.avail_in > 0 {
                         inBuffer.withUnsafeMutableBytes { dest in
                             _ = memmove(dest.baseAddress!, bufs.next_in, bufs.avail_in)
@@ -404,6 +404,7 @@ public struct DeltaStream: AsyncSequence, Sendable {
                 // Process data - may need multiple iterations
                 var iterations = 0
                 while (result == RS_RUNNING || result == RS_BLOCKED) && iterations < 1000 {
+                    let prevAvailIn = bufs.avail_in
                     result = rs_job_iter(job, &bufs)
                     iterations += 1
 
@@ -413,6 +414,12 @@ public struct DeltaStream: AsyncSequence, Sendable {
                     }
 
                     if result == RS_DONE {
+                        break
+                    }
+
+                    // If RS_BLOCKED and no input consumed, need more input
+                    // Break out to read more data
+                    if result == RS_BLOCKED && bufs.avail_in == prevAvailIn {
                         break
                     }
                 }
@@ -426,7 +433,7 @@ public struct DeltaStream: AsyncSequence, Sendable {
                 if outputSize > 0 {
                     let chunk = Data(outBuffer.prefix(outputSize))
                     bufs.next_out = outBuffer.withMutableInt8Pointer { $0 }
-                    bufs.avail_out = config.bufferSize
+                    bufs.avail_out = outBuffer.count
 
                     if result == RS_DONE {
                         isDone = true
