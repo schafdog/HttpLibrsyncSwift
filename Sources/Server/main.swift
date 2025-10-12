@@ -1,14 +1,13 @@
 /*
- * librsync -- the library for network deltas
+ * Server using librsync streaming API
  *
- * Copyright (C) 2024 by Lars Erik Wik <lars.erik.wik@northern.tech>
+ * Copyright (C) 2025 by Dennis Schafroth <dennis@schafroth.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation; either version 2.1 of the License, or
  * (at your option) any later version.
  *
- * Converted to Swift by Claude Code
  */
 
 import Foundation

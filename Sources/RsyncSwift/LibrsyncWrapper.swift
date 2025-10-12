@@ -1,7 +1,7 @@
 /*
- * librsync -- the library for network deltas
+ * LibrsyncSwift -- the library for network deltas
  *
- * Copyright (C) 2024 by Lars Erik Wik <lars.erik.wik@northern.tech>
+ * Copyright (C) 2025 by Dennis Schafroth <dennis@schafroth.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
