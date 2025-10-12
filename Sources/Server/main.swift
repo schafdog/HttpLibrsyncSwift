@@ -20,6 +20,16 @@ import Glibc
 import Darwin
 #endif
 
+// MARK: - Standard Error Stream
+
+struct StandardErrorStream: TextOutputStream {
+    mutating func write(_ string: String) {
+        FileHandle.standardError.write(Data(string.utf8))
+    }
+}
+
+nonisolated(unsafe) var standardErrorStream = StandardErrorStream()
+
 // MARK: - Socket Extensions
 
 extension sockaddr_in {
@@ -117,7 +127,7 @@ func receiveSignature(socket: Int32) throws -> OpaquePointer {
     repeat {
         if bufs.eof_in == 0 {
             if bufs.avail_in > BUFFER_SIZE {
-                fputs("Insufficient buffer capacity", stderr)
+                print("Insufficient buffer capacity", to: &standardErrorStream)
                 rs_job_free(job)
                 throw ConnectionError.insufficientBuffer
             }
