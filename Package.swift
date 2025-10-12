@@ -1,12 +1,24 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
+import Foundation
+
+let librsyncPrefix: String = {
+    // Detect typical Homebrew prefix at build time
+    if FileManager.default.fileExists(atPath: "/opt/homebrew") {
+        return "/opt/homebrew"
+    } else if FileManager.default.fileExists(atPath: "/usr/local") {
+        return "/usr/local"
+    } else {
+        return "/usr"
+    }
+}()
 
 let package = Package(
     name: "HttpLibrsyncSwift",
     platforms: [
-        .macOS(.v10_15)
+        .macOS(.v14)
     ],
     products: [
         // Server executable (TCP)
@@ -43,7 +55,7 @@ let package = Package(
         // System library wrapper for librsync
         .systemLibrary(
             name: "Clibrsync",
-            pkgConfig: "librsync",
+            path: "Sources/Clibrsync",
             providers: [
                 .apt(["librsync-dev"]),
                 .brew(["librsync"])
@@ -54,7 +66,15 @@ let package = Package(
         .target(
             name: "LibrsyncSwift",
             dependencies: ["Clibrsync"],
-            path: "Sources/LibrsyncSwift"
+            path: "Sources/LibrsyncSwift",
+            exclude: ["README.md"],
+            swiftSettings: [
+                .unsafeFlags(["-I\(librsyncPrefix)/include"], .when(platforms: [.macOS])),
+            ],
+            linkerSettings: [
+                .unsafeFlags(["-L\(librsyncPrefix)/lib"], .when(platforms: [.macOS])),
+                .linkedLibrary("rsync")
+            ]
         ),
 
         // Server executable
@@ -93,11 +113,19 @@ let package = Package(
             path: "Sources/HTTPClient"
         ),
 
-        // Tests
+        // Tests (Swift Testing - works on all platforms with Swift 6.1+)
         .testTarget(
             name: "LibrsyncSwiftTests",
-            dependencies: ["LibrsyncSwift", "Clibrsync"],
-            path: "Tests/LibrsyncSwiftTests"
+            dependencies: [
+                "LibrsyncSwift",
+                "Clibrsync"
+            ],
+            path: "Tests/LibrsyncSwiftTests",
+            exclude: [
+                "LibrsyncWrapperTests.swift.xctest",  // XCTest version (requires Xcode on macOS)
+                "README.md",
+                "DummyTests.swift"  // Old placeholder, no longer needed
+            ]
         ),
     ]
 )

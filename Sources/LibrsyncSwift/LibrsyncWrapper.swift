@@ -220,11 +220,12 @@ public struct SignatureStream: AsyncSequence, Sendable {
                     }
 
                     var nBytes: Int = 0
+		    let bufferSize = config.bufferSize
                     inBuffer.withUnsafeMutableBytes { dest in
                         nBytes = fread(
                             dest.baseAddress!.advanced(by: Int(bufs.avail_in)),
                             1,
-                            config.bufferSize - Int(bufs.avail_in),
+                            bufferSize - Int(bufs.avail_in),
                             file
                         )
                     }

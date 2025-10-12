@@ -25,7 +25,7 @@ import Darwin
 
 // MARK: - Logging
 
-var logger = Logger(label: "com.rsyncswift.httpserver")
+nonisolated(unsafe) var logger = Logger(label: "com.rsyncswift.httpserver")
 
 // MARK: - HTTP Server
 

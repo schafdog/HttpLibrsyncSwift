@@ -13,7 +13,7 @@
 
 import XCTest
 import Foundation
-@testable import RsyncSwift
+@testable import LibrsyncSwift
 
 final class LibrsyncWrapperTests: XCTestCase {
     var tempDirectory: URL!

@@ -25,7 +25,7 @@ import Darwin
 
 // MARK: - Logging
 
-var logger = Logger(label: "com.rsyncswift.httpclient")
+nonisolated(unsafe) var logger = Logger(label: "com.rsyncswift.httpclient")
 
 // MARK: - File Upload Stream
 

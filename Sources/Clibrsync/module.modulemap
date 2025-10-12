@@ -1,5 +1,5 @@
 module Clibrsync [system] {
-    header "/usr/include/librsync.h"
+    umbrella header "include/librsync.h"
     link "rsync"
     export *
 }
