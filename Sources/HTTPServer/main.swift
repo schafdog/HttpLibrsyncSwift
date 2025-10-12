@@ -198,6 +198,9 @@ struct AccessLogMiddleware<Context: RequestContext>: RouterMiddleware {
 @main
 struct HTTPServerApp {
     static func main() async throws {
+        // Initialize logging system
+        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
+
         // Parse arguments
         var args = CommandLine.arguments
 
@@ -239,17 +242,18 @@ struct HTTPServerApp {
             args.remove(at: portIndex)
         }
 
-        // Create router
+        // Create router with access logging middleware
         let router = Router()
+
+        // Add access logging middleware FIRST (so it wraps all routes)
+        router.middlewares.add(AccessLogMiddleware())
+
         let controller = DeltaController()
 
         // Configure routes
         router.get("/signature", use: controller.generateSignature)
         router.post("/upload", use: controller.uploadFile)
         router.post("/delta", use: controller.applyDelta)
-
-        // Add access logging middleware
-        router.middlewares.add(AccessLogMiddleware())
 
         // Create and configure application
         let app = Application(

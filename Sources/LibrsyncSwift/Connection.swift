@@ -121,7 +121,7 @@ public func readChunk(socket: Int32) throws -> Data {
 
         // Parse chunk size from hex header
         headerBuffer[endIndex] = 0
-        let headerString = String(cString: headerBuffer)
+        let headerString = String(decoding: headerBuffer, as: UTF8.self)
         if let size = Int(headerString, radix: 16) {
             chunkSize = size
             headerLength = endIndex + 2 // Include \r\n
