@@ -2,7 +2,7 @@
 .build-test
 *~
 #*
-1*MB
-1*GB
 .claude
 .vscode
+client/
+server/

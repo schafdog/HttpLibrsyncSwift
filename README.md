@@ -1,30 +1,34 @@
-# RsyncSwift
+# HttpLibrsyncSwift
 
-A Swift implementation of the librsync streaming example, demonstrating delta synchronization over a network using chunked transfer encoding.
+HTTP and TCP implementations for librsync streaming delta synchronization using the LibrsyncSwift library.
 
 ## Overview
 
-This project is a Swift port of the C-based `server.c` and `client.c` examples that demonstrate librsync's streaming delta synchronization capabilities. The implementation uses:
+This project demonstrates delta synchronization over networks using the [LibrsyncSwift](../LibrsyncSwift) library. It provides both HTTP-based and TCP-based implementations:
 
-- **librsync**: For signature generation, delta computation, and file patching
-- **Chunked Transfer Encoding**: HTTP-style chunked encoding for efficient network streaming
-- **Swift System APIs**: Native Swift networking using BSD sockets
+- **HTTP Implementation**: Modern async/await using Hummingbird server and AsyncHTTPClient
+- **TCP Implementation**: Direct socket implementation with chunked transfer encoding
+- **LibrsyncSwift**: Standalone Swift wrapper for librsync (in separate package)
 
 ## Project Structure
 
 ```
-RsyncSwift/
+HttpLibrsyncSwift/
 ├── Package.swift                 # Swift Package Manager manifest
 ├── Sources/
-│   ├── Clibrsync/               # C library module map for librsync
-│   │   └── module.modulemap
-│   ├── RsyncSwift/              # Shared connection utilities
-│   │   └── Connection.swift      # Chunked transfer encoding implementation
-│   ├── Server/                   # Server executable
-│   │   └── main.swift
-│   └── Client/                   # Client executable
-│       └── main.swift
+│   ├── HTTPServer/              # HTTP server using Hummingbird
+│   ├── HTTPClient/              # HTTP client using AsyncHTTPClient
+│   ├── Server/                  # TCP server executable
+│   └── Client/                  # TCP client executable
+└── Tests/
 ```
+
+## Dependencies
+
+This project depends on:
+- **LibrsyncSwift**: Local path dependency `https://github.com/schafdog/LibrsyncSwift` (standalone library)
+- **Hummingbird**: HTTP server framework
+- **AsyncHTTPClient**: HTTP client library
 
 ## Features
 
@@ -47,14 +51,18 @@ brew install librsync
 
 ## Building
 
+First, ensure the LibrsyncSwift library is available at `https://github.com/schafdog/LibrsyncSwift`, then:
+
 ```bash
-cd RsyncSwift
+cd HttpLibrsyncSwift
 swift build
 ```
 
 The executables will be located in `.build/debug/`:
-- `.build/debug/Server`
-- `.build/debug/Client`
+- `.build/debug/Server` (TCP server)
+- `.build/debug/Client` (TCP client)
+- `.build/debug/HTTPServer` (HTTP server)
+- `.build/debug/HTTPClient` (HTTP client)
 
 ## Usage
 
@@ -114,14 +122,28 @@ A zero-length chunk signals EOF:
 \r\n
 ```
 
-### Network Port
+### Network Ports
 
-Default port: **5612** (defined in `Connection.swift`)
+- TCP Server: **5612** (default)
+- HTTP Server: **8080** (default)
 
 ### Buffer Sizes
 
 - `BUFFER_SIZE`: 65536 bytes (16 * 4096)
 - `CHUNK_SIZE`: Same as BUFFER_SIZE
+
+## LibrsyncSwift Library
+
+The librsync Swift wrapper has been extracted into a standalone package located at `../LibrsyncSwift`.
+
+Key features:
+- Streaming API with AsyncSequence
+- Full Swift 6 concurrency support
+- Type-safe error handling
+- Thread-safe operations
+- Constant memory usage for large files
+
+See [LibrsyncSwift/README.md](../LibrsyncSwift/README.md) for detailed documentation.
 
 ## Implementation Notes
 

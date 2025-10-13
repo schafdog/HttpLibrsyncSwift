@@ -1,5 +1,5 @@
 {
-  "originHash" : "ab2478adb8c49c038d0a04641393283d63e67857542fe5b331d326e486f4f1d6",
+  "originHash" : "24d22c155f58ffb80bea844703187d0f4a3317f355f47a3fb5f2bb8cfa7b6586",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "3ae359b1bb1e72378ed43b59fdcd4d44cac5d7a4",
         "version" : "2.16.0"
+      }
+    },
+    {
+      "identity" : "librsyncswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/schafdog/LibrsyncSwift",
+      "state" : {
+        "revision" : "d678f6d5a5e322b583c1a993da19885f4f87f2ca",
+        "version" : "1.0.1"
       }
     },
     {
