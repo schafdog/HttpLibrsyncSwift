@@ -56,16 +56,21 @@ struct DeltaController {
         // Convert Data chunks to ByteBuffer for Hummingbird with logging
         let byteBufferStream = AsyncStream<ByteBuffer> { continuation in
             Task {
-                var totalSignatureBytes = 0
-                for await data in signatureStream {
-                    totalSignatureBytes += data.count
-                    logger.debug("Sending \(data.count) bytes of signature (total: \(totalSignatureBytes))")
-                    var buffer = ByteBuffer()
-                    buffer.writeBytes(data)
-                    continuation.yield(buffer)
+                do {
+                    var totalSignatureBytes = 0
+                    for try await data in signatureStream {
+                        totalSignatureBytes += data.count
+                        logger.debug("Sending \(data.count) bytes of signature (total: \(totalSignatureBytes))")
+                        var buffer = ByteBuffer()
+                        buffer.writeBytes(data)
+                        continuation.yield(buffer)
+                    }
+                    logger.info("Signature generation complete. Total: \(totalSignatureBytes) bytes")
+                    continuation.finish()
+                } catch {
+                    logger.error("Error generating signature: \(error)")
+                    continuation.finish()
                 }
-                logger.info("Signature generation complete. Total: \(totalSignatureBytes) bytes")
-                continuation.finish()
             }
         }
 
@@ -141,23 +146,16 @@ struct DeltaController {
 
         logger.info("Applying delta to file: \(filename)")
 
-        // Collect delta data from request body
-        var deltaData = Data()
-        for try await buffer in request.body {
+        // Convert request body to AsyncSequence<Data> for streaming patch application
+        let deltaDataStream = request.body.map { buffer -> Data in
             let nBytes = buffer.readableBytes
-            if nBytes > 0 {
-                buffer.withUnsafeReadableBytes { bytes in
-                    deltaData.append(bytes.bindMemory(to: UInt8.self))
-                }
-                logger.debug("Received \(nBytes) bytes of delta")
-            }
+            logger.debug("Received \(nBytes) bytes of delta")
+            return Data(buffer.readableBytesView)
         }
 
-        logger.info("Received complete delta (\(deltaData.count) bytes), applying patch...")
-
-        // Apply patch using LibrsyncWrapper (with atomic rename)
+        // Apply patch using LibrsyncWrapper streaming API (with atomic rename)
         do {
-            try await rsync.patch(fileURL, with: deltaData)
+            try await rsync.patch(fileURL, with: deltaDataStream)
             logger.info("Successfully patched \(filename)")
 
             return Response(

@@ -33,7 +33,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.9.0"),
-        .package(url: "https://github.com/schafdog/LibrsyncSwift", from: "1.0.1"),
+        .package(url: "https://github.com/schafdog/LibrsyncSwift", from: "1.0.3"),
     ],
     targets: [
         // Server executable
